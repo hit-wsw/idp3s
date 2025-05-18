@@ -1,0 +1,28 @@
+name: g1_si_place_expert
+
+task_name: place
+
+shape_meta: &shape_meta
+  # acceptable types: rgb, low_dim
+  obs:
+    point_cloud:
+      shape: [10000, 3]
+      type: point_cloud
+    agent_pos:
+      shape: [27]
+      type: low_dimx
+  action:
+    shape: [27]
+
+env_runner: null
+
+dataset:
+  _target_: diffusion_policy_3d.dataset.realdex_dataset.RealDexDataset
+  zarr_path: data/g1_si_place_expert.zarr
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 42
+  val_ratio: 0.02
+  max_train_episodes: 90
+
