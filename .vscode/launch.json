@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug train.py",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/3D-Diffusion-Policy/train.py",
+            "args": [
+                "--config-name=idp3.yaml",  // 替换为你的配置文件（如 simple_dp3.yaml）
+                "task=g1_sim_place_expert",      // 替换为你的任务名
+                "hydra.run.dir=data/outputs/debug_output",  // 自定义输出目录
+                "training.debug=True",     // 启用调试模式（减少epoch和step）
+                "training.seed=0",        // 随机种子
+                "training.device=cuda:0",  // 使用GPU（或改为cpu）
+                "exp_name=debug-test",     // 实验名称
+                "logging.mode=offline"    // 离线模式（避免上传wandb）
+            ],
+            "env": {
+                "HYDRA_FULL_ERROR": "1",  // 显示完整错误
+                "CUDA_VISIBLE_DEVICES": "0" // 指定GPU（如无需GPU则删除此行）
+            },
+            "cwd": "${workspaceFolder}/3D-Diffusion-Policy",  // 确保工作目录正确
+            "console": "integratedTerminal"
+        }
+    ]
+}

@@ -15,7 +15,7 @@ from hyperparameters import *
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--env_name', type=str, default='g1_si_place', help='environment to run')
+    parser.add_argument('--env_name', type=str, default='g1_sim_place', help='environment to run')
     parser.add_argument('--root_dir', type=str, default='/media/wsw/SSD1T1/data', help='directory to save data')
     parser.add_argument('--meatdata_path', type=str, default='/media/wsw/SSD1T1/data/metadata', help='path to meta data')
     parser.add_argument('--img_size', type=int, default=84, help='image size')
