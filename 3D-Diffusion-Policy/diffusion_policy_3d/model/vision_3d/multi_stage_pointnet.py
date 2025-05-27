@@ -31,13 +31,13 @@ class MultiStagePointNetEncoder(nn.Module):
 
     def forward(self, x):
         x = x.transpose(1, 2) # [B, N, 3] --> [B, 3, N]
-        y = self.act(self.conv_in(x))
+        y = self.act(self.conv_in(x))#[B, out_channels, N]
         feat_list = []
         for i in range(self.num_layers):
             y = self.act(self.layers[i](y))
-            y_global = y.max(-1, keepdim=True).values
-            y = torch.cat([y, y_global.expand_as(y)], dim=1)
-            y = self.act(self.global_layers[i](y))
+            y_global = y.max(-1, keepdim=True).values#[B, out_channels, 1]，每个输出通道上的最大特征
+            y = torch.cat([y, y_global.expand_as(y)], dim=1)#[B, out_channels * 2, N]，叠加
+            y = self.act(self.global_layers[i](y))#[B, out_channels, N]
             feat_list.append(y)
         x = torch.cat(feat_list, dim=1)
         x = self.conv_out(x)

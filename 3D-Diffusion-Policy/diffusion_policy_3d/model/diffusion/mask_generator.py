@@ -42,7 +42,7 @@ class DummyMaskGenerator(ModuleAttrMixin):
 
 class LowdimMaskGenerator(ModuleAttrMixin):
     def __init__(self,
-        action_dim, obs_dim,
+        action_dim, obs_dim,#action_dim = 27, obs_dim = 0
         # obs mask setup
         max_n_obs_steps=2, 
         fix_obs_steps=True, 
