@@ -261,17 +261,17 @@ class ConditionalUnet1D(nn.Module):
         )
 
     def forward(self, 
-            sample: torch.Tensor, 
+            sample: torch.Tensor, #[batch_size, horizon, input_dim]
             timestep: Union[torch.Tensor, float, int], 
             local_cond=None, global_cond=None, **kwargs):
         """
-        x: (B,T,input_dim)
+        x: (B,T,D)
         timestep: (B,) or int, diffusion step
         local_cond: (B,T,local_cond_dim)
         global_cond: (B,global_cond_dim)
         output: (B,T,input_dim)
         """
-        sample = einops.rearrange(sample, 'b h t -> b t h')
+        sample = einops.rearrange(sample, 'b t h -> b h t')# [batch_size, input_dim, horizon]
 
         # 1. time
         timesteps = timestep
@@ -341,7 +341,7 @@ class ConditionalUnet1D(nn.Module):
 
         x = self.final_conv(x)
 
-        x = einops.rearrange(x, 'b t h -> b h t')
+        x = einops.rearrange(x, 'b h t -> b t h')#[batch_size, horizon, input_dim]
 
         return x
 

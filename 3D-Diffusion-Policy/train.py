@@ -189,12 +189,15 @@ class TrainDP3Workspace:
                     if train_sampling_batch is None:
                         train_sampling_batch = batch
                 
-                    # compute loss
+                    # data loaded
+
+                    # compute loss and backward
                     t1_1 = time.time()
                     raw_loss, loss_dict = self.model.compute_loss(batch)
                     loss = raw_loss / cfg.training.gradient_accumulate_every
                     loss.backward()
-                    
+                    # loss computed
+
                     t1_2 = time.time()
 
                     # step optimizer
@@ -202,11 +205,15 @@ class TrainDP3Workspace:
                         self.optimizer.step()
                         self.optimizer.zero_grad()
                         lr_scheduler.step()
+                    # optimizer stepped
                     t1_3 = time.time()
+
                     # update ema
                     if cfg.training.use_ema:
                         ema.step(self.model)
                     t1_4 = time.time()
+                    # ema updated
+
                     # logging
                     raw_loss_cpu = raw_loss.item()
                     tepoch.set_postfix(loss=raw_loss_cpu, refresh=False)

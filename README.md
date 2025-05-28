@@ -136,7 +136,7 @@ You can try using our provided real world data to train the policy.
 1. Download the real robot data. Put the data under `3D-Diffusion-Policy/data/` folder, e.g. `3D-Diffusion-Policy/data/realdex_drill.zarr`, please keep the path the same as 'zarr_path' in the task's yaml file.
 2. Train the policy. For example:
   ```bash
-    bash scripts/train_policy.sh dp3 realdex_drill 0112 0 0
+    bash scripts/train_policy.sh dp3 g1_sim_place_expert test 0 0
   ```
 3. For real-world deployment code, you might refer to [iDP3](https://github.com/YanjieZe/Improved-3D-Diffusion-Policy) for a reference.
    

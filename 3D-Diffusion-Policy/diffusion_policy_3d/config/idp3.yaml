@@ -125,7 +125,7 @@ logging:
   id: null
   mode: online
   name: ${training.seed}
-  project: humanoid_mimic
+  project: idp3_debug
   resume: true
   tags:
   - train_diffusion_unet_hybrid
@@ -136,7 +136,7 @@ checkpoint:
   topk:
     monitor_key: test_mean_score
     mode: max
-    k: 0
+    k: 0 #指定最多保存的检查点数量
     format_str: 'epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt'
   save_last_ckpt: True # this only saves when save_ckpt is True
   save_last_snapshot: False

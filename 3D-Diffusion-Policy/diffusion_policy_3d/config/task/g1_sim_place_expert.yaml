@@ -18,7 +18,7 @@ env_runner: null
 
 dataset:
   _target_: diffusion_policy_3d.dataset.realdex_dataset.RealDexDataset
-  zarr_path: data/g1_sim_place_expert.zarr
+  zarr_path: /home/wsw/D_wsw_ws/3d_dp/3D-Diffusion-Policy/3D-Diffusion-Policy/data/g1_sim_place_expert.zarr
   horizon: ${horizon}
   pad_before: ${eval:'${n_obs_steps}-1'}
   pad_after: ${eval:'${n_action_steps}-1'}

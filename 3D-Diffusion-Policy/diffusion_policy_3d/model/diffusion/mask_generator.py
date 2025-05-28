@@ -63,7 +63,7 @@ class LowdimMaskGenerator(ModuleAttrMixin):
         assert D == (self.action_dim + self.obs_dim)
 
         # create all tensors on this device
-        rng = torch.Generator(device=device)
+        rng = torch.Generator(device=device)#随机数生成器
         if seed is not None:
             rng = rng.manual_seed(seed)
 
@@ -83,9 +83,9 @@ class LowdimMaskGenerator(ModuleAttrMixin):
                 low=1, high=self.max_n_obs_steps+1, 
                 size=(B,), generator=rng, device=device)
             
-        steps = torch.arange(0, T, device=device).reshape(1,T).expand(B,T)
-        obs_mask = (steps.T < obs_steps).T.reshape(B,T,1).expand(B,T,D)
-        obs_mask = obs_mask & is_obs_dim
+        steps = torch.arange(0, T, device=device).reshape(1,T).expand(B,T)#[B,T]
+        obs_mask = (steps.T < obs_steps).T.reshape(B,T,1).expand(B,T,D)#[B,T,D]
+        obs_mask = obs_mask & is_obs_dim #标记哪些时间步和特征维度属于观测范围
 
         # generate action mask
         if self.action_visible:
