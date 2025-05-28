@@ -142,7 +142,7 @@ class TrainDP3Workspace:
         
         cfg.logging.name = str(cfg.logging.name)
         cprint("-----------------------------", "yellow")
-        cprint(f"[WandB] group: {cfg.logging.group}", "yellow")
+        cprint(f"[WandB] project: {cfg.logging.project}", "yellow")
         cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
         cprint("-----------------------------", "yellow")
         # configure logging
@@ -177,9 +177,10 @@ class TrainDP3Workspace:
         # training loop
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
         for local_epoch_idx in range(cfg.training.num_epochs):
-            step_log = dict()
+            step_log = dict();epoch_log = dict()
             # ========= train for this epoch ==========
             train_losses = list()
+            t0 = time.time()
             with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}", 
                     leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                 for batch_idx, batch in enumerate(tepoch):
@@ -238,7 +239,7 @@ class TrainDP3Workspace:
                     is_last_batch = (batch_idx == (len(train_dataloader)-1))
                     if not is_last_batch:
                         # log of last step is combined with validation and rollout
-                        wandb_run.log(step_log, step=self.global_step)
+                        #wandb_run.log(step_log, step=self.global_step)
                         self.global_step += 1
 
                     if (cfg.training.max_train_steps is not None) \
@@ -249,6 +250,12 @@ class TrainDP3Workspace:
             # replace train_loss with epoch average
             train_loss = np.mean(train_losses)
             step_log['train_loss'] = train_loss
+            epoch_time = time.time() - t0
+            epoch_log = {
+                        'epoch_train_loss': train_loss,
+                        'lr': lr_scheduler.get_last_lr()[0],
+                        "epoch_time": epoch_time
+                    }
 
             # ========= eval for this epoch ==========
             policy = self.model
@@ -265,9 +272,7 @@ class TrainDP3Workspace:
                 # print(f"rollout time: {t4-t3:.3f}")
                 # log all
                 step_log.update(runner_log)
-
-            
-                
+                     
             # run validation
             if (self.epoch % cfg.training.val_every) == 0 and RUN_VALIDATION:
                 with torch.no_grad():
@@ -297,6 +302,7 @@ class TrainDP3Workspace:
                     result = policy.predict_action(obs_dict)
                     pred_action = result['action_pred']
                     mse = torch.nn.functional.mse_loss(pred_action, gt_action)
+                    epoch_log['train_action_mse_error'] = mse.item()
                     step_log['train_action_mse_error'] = mse.item()
                     del batch
                     del obs_dict
@@ -306,6 +312,7 @@ class TrainDP3Workspace:
                     del mse
 
             if env_runner is None:
+                epoch_log['test_mean_score'] = - train_loss
                 step_log['test_mean_score'] = - train_loss
                 
             # checkpoint
@@ -334,10 +341,14 @@ class TrainDP3Workspace:
 
             # end of epoch
             # log of last step is combined with validation and rollout
-            wandb_run.log(step_log, step=self.global_step)
+            wandb_run.log(epoch_log, step=self.epoch)
+            #wandb_run.log(step_log, step=self.global_step)
+            #epoch_table = wandb.Table(columns=list(epoch_log.keys()), data=[list(epoch_log.values())])
+            #wandb_run.log({"epoch_log": epoch_table}, step=self.global_step)
             self.global_step += 1
             self.epoch += 1
             del step_log
+            del epoch_log
 
     def eval(self):
         # load the latest checkpoint

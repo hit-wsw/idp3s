@@ -80,7 +80,7 @@ ema:
 
 dataloader:
   # batch_size: 120
-  batch_size: 64
+  batch_size: 8
   num_workers: 8
   shuffle: True
   pin_memory: True
@@ -121,10 +121,10 @@ training:
   save_video: True
 
 logging:
-  group: ${exp_name}
+  group: ${name}
   id: null
   mode: online
-  name: ${training.seed}
+  name: ${exp_name}
   project: idp3_debug
   resume: true
   tags:
