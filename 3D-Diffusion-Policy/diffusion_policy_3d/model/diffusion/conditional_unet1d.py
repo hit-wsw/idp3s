@@ -103,7 +103,7 @@ class ConditionalResidualBlock1D(nn.Module):
         self.residual_conv = nn.Conv1d(in_channels, out_channels, 1) \
             if in_channels != out_channels else nn.Identity()
 
-    def forward(self, x, cond=None):
+    def forward(self, x, cond=None, center_cond=None):
         '''
             x : [ batch_size x in_channels x horizon ]
             cond : [ batch_size x cond_dim]
@@ -143,6 +143,12 @@ class ConditionalResidualBlock1D(nn.Module):
                 raise NotImplementedError(f"condition_type {self.condition_type} not implemented")
         out = self.blocks[1](out)
         out = out + self.residual_conv(x)
+        if self.condition_type == 'film':
+            center_embed = self.cond_encoder(center_cond)
+            center_embed = center_embed.reshape(center_embed.shape[0], 2, self.out_channels, 1)
+            center_scale = center_embed[:, 0, ...]
+            center_bias = center_embed[:, 1, ...]
+            out = center_scale * out + center_bias
         return out
 
 
@@ -263,7 +269,7 @@ class ConditionalUnet1D(nn.Module):
     def forward(self, 
             sample: torch.Tensor, #[batch_size, horizon, input_dim]
             timestep: Union[torch.Tensor, float, int], 
-            local_cond=None, global_cond=None, **kwargs):
+            local_cond=None, global_cond=None, center_cond=None, **kwargs):
         """
         x: (B,T,D)
         timestep: (B,) or int, diffusion step
@@ -288,6 +294,7 @@ class ConditionalUnet1D(nn.Module):
             if self.condition_type == 'cross_attention':
                 timestep_embed = timestep_embed.unsqueeze(1).expand(-1, global_cond.shape[1], -1)
             global_feature = torch.cat([timestep_embed, global_cond], axis=-1)
+            center_feature = torch.cat([timestep_embed, center_cond], axis=-1)
 
 
         # encode local features
@@ -304,10 +311,10 @@ class ConditionalUnet1D(nn.Module):
         h = []
         for idx, (resnet, resnet2, downsample) in enumerate(self.down_modules):
             if self.use_down_condition:
-                x = resnet(x, global_feature)
+                x = resnet(x, global_feature, center_feature)
                 if idx == 0 and len(h_local) > 0:
                     x = x + h_local[0]
-                x = resnet2(x, global_feature)
+                x = resnet2(x, global_feature, center_feature)
             else:
                 x = resnet(x)
                 if idx == 0 and len(h_local) > 0:
@@ -319,7 +326,7 @@ class ConditionalUnet1D(nn.Module):
 
         for mid_module in self.mid_modules:
             if self.use_mid_condition:
-                x = mid_module(x, global_feature)
+                x = mid_module(x, global_feature, center_feature)
             else:
                 x = mid_module(x)
 
@@ -327,10 +334,10 @@ class ConditionalUnet1D(nn.Module):
         for idx, (resnet, resnet2, upsample) in enumerate(self.up_modules):
             x = torch.cat((x, h.pop()), dim=1)
             if self.use_up_condition:
-                x = resnet(x, global_feature)
+                x = resnet(x, global_feature, center_feature)
                 if idx == len(self.up_modules) and len(h_local) > 0:
                     x = x + h_local[1]
-                x = resnet2(x, global_feature)
+                x = resnet2(x, global_feature, center_feature)
             else:
                 x = resnet(x)
                 if idx == len(self.up_modules) and len(h_local) > 0:

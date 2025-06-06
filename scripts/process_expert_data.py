@@ -15,9 +15,9 @@ from hyperparameters import *
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--env_name', type=str, default='g1_sim_place', help='environment to run')
-    parser.add_argument('--root_dir', type=str, default='/media/wsw/SSD1T1/data', help='directory to save data')
-    parser.add_argument('--meatdata_path', type=str, default='/media/wsw/SSD1T1/data/metadata', help='path to meta data')
+    parser.add_argument('--env_name', type=str, default='g1_sim_pcd', help='environment to run')
+    parser.add_argument('--root_dir', type=str, default='/home/wsw/D_wsw_ws/3d_dp/3D-Diffusion-Policy/3D-Diffusion-Policy/data', help='directory to save data')
+    parser.add_argument('--meatdata_path', type=str, default='/home/wsw/D_wsw_ws/3d_dp/expert_data', help='path to meta data')
     parser.add_argument('--img_size', type=int, default=84, help='image size')
     parser.add_argument('--pcd_sample', type=int, default=10000, help='num points to sample pcd')
     parser.add_argument('--table_threshold', type=float, default=0.005, help='threshold to distinguish table pcd')

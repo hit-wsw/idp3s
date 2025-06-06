@@ -8,8 +8,10 @@ def gen_pcd(metadata_root):
     """
     生成点云
     """
-    color_jpg_path = os.path.join(metadata_root, 'color_0.jpg')
-    depth_png_path = os.path.join(metadata_root, 'depth_0.png')
+    '''color_jpg_path = os.path.join(metadata_root, '000000_color_0.png')
+    depth_png_path = os.path.join(metadata_root, '000000_depth_0.png')'''
+    color_jpg_path = os.path.join(metadata_root, 'color_image.jpg')
+    depth_png_path = os.path.join(metadata_root, 'depth_image.png')
     color_image_o3d = o3d.io.read_image(color_jpg_path)
     depth_image_o3d = o3d.io.read_image(depth_png_path)
     max_depth = 1000
@@ -258,12 +260,6 @@ def main():
                 print("选择的点不共面，请重新选择！")
         except ValueError as e:
             print(e)
-    
-    # 4. 显示带平面的点云
-    #show_pcd_with_plane(color_pcd, plane)
-
-    
-    # 5. 过滤点云 (注释掉实际执行，按需求取消注释)
     filtered_pcd ,table_pcd = filter_points_by_plane(color_pcd, plane)
     show_pcd(filtered_pcd,table_pcd)  # 使用原有的show_pcd函数显示过滤后的点云
     # 6. 保存平面参数到文件
