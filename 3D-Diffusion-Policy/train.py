@@ -319,7 +319,7 @@ class TrainDP3Workspace:
             if (self.epoch % cfg.training.checkpoint_every) == 0 and cfg.checkpoint.save_ckpt:
                 # checkpointing
                 if cfg.checkpoint.save_last_ckpt:
-                    self.save_checkpoint()
+                    self.save_epoch_checkpoint(epoch = self.epoch)
                 if cfg.checkpoint.save_last_snapshot:
                     self.save_snapshot()
 
@@ -387,6 +387,46 @@ class TrainDP3Workspace:
             output_dir = HydraConfig.get().runtime.output_dir
         return output_dir
     
+    def save_epoch_checkpoint(self, path=None, epoch = None, 
+            exclude_keys=None,
+            include_keys=None,
+            use_thread=False):
+        if path is None:
+            path = pathlib.Path(self.output_dir).joinpath('checkpoints', f'{epoch}.ckpt')
+        else:
+            path = pathlib.Path(path)
+        if exclude_keys is None:
+            exclude_keys = tuple(self.exclude_keys)
+        if include_keys is None:
+            include_keys = tuple(self.include_keys) + ('_output_dir',)
+
+        path.parent.mkdir(parents=False, exist_ok=True)
+        payload = {
+            'cfg': self.cfg,
+            'state_dicts': dict(),
+            'pickles': dict()
+        } 
+
+        for key, value in self.__dict__.items():
+            if hasattr(value, 'state_dict') and hasattr(value, 'load_state_dict'):
+                # modules, optimizers and samplers etc
+                if key not in exclude_keys:
+                    if use_thread:
+                        payload['state_dicts'][key] = _copy_to_cpu(value.state_dict())
+                    else:
+                        payload['state_dicts'][key] = value.state_dict()
+            elif key in include_keys:
+                payload['pickles'][key] = dill.dumps(value)
+        if use_thread:
+            self._saving_thread = threading.Thread(
+                target=lambda : torch.save(payload, path.open('wb'), pickle_module=dill))
+            self._saving_thread.start()
+        else:
+            torch.save(payload, path.open('wb'), pickle_module=dill)
+        
+        del payload
+        torch.cuda.empty_cache()
+        return str(path.absolute())
 
     def save_checkpoint(self, path=None, tag='latest', 
             exclude_keys=None,
