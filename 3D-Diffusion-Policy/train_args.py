@@ -7,6 +7,8 @@ if __name__ == "__main__":
     sys.path.append(ROOT_DIR)
     os.chdir(ROOT_DIR)
 
+import argparse
+import yaml
 import os
 import hydra
 import torch
@@ -23,6 +25,7 @@ from termcolor import cprint
 import shutil
 import time
 import threading
+import argparse
 from hydra.core.hydra_config import HydraConfig
 from diffusion_policy_3d.policy.dp3 import DP3
 from diffusion_policy_3d.dataset.base_dataset import BaseDataset
@@ -142,7 +145,7 @@ class TrainDP3Workspace:
         
         cfg.logging.name = str(cfg.logging.name)
         cprint("-----------------------------", "yellow")
-        cprint(f"[WandB] project: {cfg.logging.project}", "yellow")
+        cprint(f"[WandB] group: {cfg.logging.group}", "yellow")
         cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
         cprint("-----------------------------", "yellow")
         # configure logging
@@ -177,12 +180,11 @@ class TrainDP3Workspace:
         # training loop
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
         for local_epoch_idx in range(cfg.training.num_epochs):
-            step_log = dict();epoch_log = dict()
+            step_log = dict()
             # ========= train for this epoch ==========
             train_losses = list()
-            t0 = time.time()
             with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}", 
-                    leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+                    leave=True, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                 for batch_idx, batch in enumerate(tepoch):
                     t1 = time.time()
                     # device transfer
@@ -190,15 +192,12 @@ class TrainDP3Workspace:
                     if train_sampling_batch is None:
                         train_sampling_batch = batch
                 
-                    # data loaded
-
-                    # compute loss and backward
+                    # compute loss
                     t1_1 = time.time()
                     raw_loss, loss_dict = self.model.compute_loss(batch)
                     loss = raw_loss / cfg.training.gradient_accumulate_every
                     loss.backward()
-                    # loss computed
-
+                    
                     t1_2 = time.time()
 
                     # step optimizer
@@ -206,15 +205,11 @@ class TrainDP3Workspace:
                         self.optimizer.step()
                         self.optimizer.zero_grad()
                         lr_scheduler.step()
-                    # optimizer stepped
                     t1_3 = time.time()
-
                     # update ema
                     if cfg.training.use_ema:
                         ema.step(self.model)
                     t1_4 = time.time()
-                    # ema updated
-
                     # logging
                     raw_loss_cpu = raw_loss.item()
                     tepoch.set_postfix(loss=raw_loss_cpu, refresh=False)
@@ -239,7 +234,7 @@ class TrainDP3Workspace:
                     is_last_batch = (batch_idx == (len(train_dataloader)-1))
                     if not is_last_batch:
                         # log of last step is combined with validation and rollout
-                        #wandb_run.log(step_log, step=self.global_step)
+                        wandb_run.log(step_log, step=self.global_step)
                         self.global_step += 1
 
                     if (cfg.training.max_train_steps is not None) \
@@ -250,12 +245,6 @@ class TrainDP3Workspace:
             # replace train_loss with epoch average
             train_loss = np.mean(train_losses)
             step_log['train_loss'] = train_loss
-            epoch_time = time.time() - t0
-            epoch_log = {
-                        'epoch_train_loss': train_loss,
-                        'lr': lr_scheduler.get_last_lr()[0],
-                        "epoch_time": epoch_time
-                    }
 
             # ========= eval for this epoch ==========
             policy = self.model
@@ -272,7 +261,9 @@ class TrainDP3Workspace:
                 # print(f"rollout time: {t4-t3:.3f}")
                 # log all
                 step_log.update(runner_log)
-                     
+
+            
+                
             # run validation
             if (self.epoch % cfg.training.val_every) == 0 and RUN_VALIDATION:
                 with torch.no_grad():
@@ -302,7 +293,6 @@ class TrainDP3Workspace:
                     result = policy.predict_action(obs_dict)
                     pred_action = result['action_pred']
                     mse = torch.nn.functional.mse_loss(pred_action, gt_action)
-                    epoch_log['train_action_mse_error'] = mse.item()
                     step_log['train_action_mse_error'] = mse.item()
                     del batch
                     del obs_dict
@@ -312,14 +302,13 @@ class TrainDP3Workspace:
                     del mse
 
             if env_runner is None:
-                epoch_log['test_mean_score'] = - train_loss
                 step_log['test_mean_score'] = - train_loss
                 
             # checkpoint
             if (self.epoch % cfg.training.checkpoint_every) == 0 and cfg.checkpoint.save_ckpt:
                 # checkpointing
                 if cfg.checkpoint.save_last_ckpt:
-                    self.save_epoch_checkpoint(epoch = self.epoch)
+                    self.save_checkpoint()
                 if cfg.checkpoint.save_last_snapshot:
                     self.save_snapshot()
 
@@ -341,14 +330,10 @@ class TrainDP3Workspace:
 
             # end of epoch
             # log of last step is combined with validation and rollout
-            wandb_run.log(epoch_log, step=self.epoch)
-            #wandb_run.log(step_log, step=self.global_step)
-            #epoch_table = wandb.Table(columns=list(epoch_log.keys()), data=[list(epoch_log.values())])
-            #wandb_run.log({"epoch_log": epoch_table}, step=self.global_step)
+            wandb_run.log(step_log, step=self.global_step)
             self.global_step += 1
             self.epoch += 1
             del step_log
-            del epoch_log
 
     def eval(self):
         # load the latest checkpoint
@@ -379,38 +364,6 @@ class TrainDP3Workspace:
         for key, value in runner_log.items():
             if isinstance(value, float):
                 cprint(f"{key}: {value:.4f}", 'magenta')
-
-    def transform_state_dict(self, state_dict):
-        
-
-        # 处理字典：新增维度并转换为 Tensor
-        processed_dict = {
-            key: torch.from_numpy(np.expand_dims(value, axis=0))  # 新增第0维，然后转Tensor
-            for key, value in state_dict.items()
-        }
-
-        return processed_dict
-
-    def get_pose_from_policy(self, cpkt_path, cpkt_name, state):
-        state = self.transform_state_dict(state)
-
-        cpkt = self.get_cpkt_from_path(cpkt_path, cpkt_name)
-        if cpkt.is_file():
-            cprint(f"Resuming from checkpoint {cpkt}", 'magenta')
-            self.load_checkpoint(path=cpkt)
-        else:
-            raise FileNotFoundError(f"Checkpoint {cpkt} not found.")
-
-        policy = self.model
-        policy.eval()
-        policy.cuda()
-        with torch.no_grad():
-            action = policy.gen_action(state)
-            action = action.cpu().numpy()
-
-        return action
-
-        #return action
         
     @property
     def output_dir(self):
@@ -419,46 +372,6 @@ class TrainDP3Workspace:
             output_dir = HydraConfig.get().runtime.output_dir
         return output_dir
     
-    def save_epoch_checkpoint(self, path=None, epoch = None, 
-            exclude_keys=None,
-            include_keys=None,
-            use_thread=False):
-        if path is None:
-            path = pathlib.Path(self.output_dir).joinpath('checkpoints', f'{epoch}.ckpt')
-        else:
-            path = pathlib.Path(path)
-        if exclude_keys is None:
-            exclude_keys = tuple(self.exclude_keys)
-        if include_keys is None:
-            include_keys = tuple(self.include_keys) + ('_output_dir',)
-
-        path.parent.mkdir(parents=False, exist_ok=True)
-        payload = {
-            'cfg': self.cfg,
-            'state_dicts': dict(),
-            'pickles': dict()
-        } 
-
-        for key, value in self.__dict__.items():
-            if hasattr(value, 'state_dict') and hasattr(value, 'load_state_dict'):
-                # modules, optimizers and samplers etc
-                if key not in exclude_keys:
-                    if use_thread:
-                        payload['state_dicts'][key] = _copy_to_cpu(value.state_dict())
-                    else:
-                        payload['state_dicts'][key] = value.state_dict()
-            elif key in include_keys:
-                payload['pickles'][key] = dill.dumps(value)
-        if use_thread:
-            self._saving_thread = threading.Thread(
-                target=lambda : torch.save(payload, path.open('wb'), pickle_module=dill))
-            self._saving_thread.start()
-        else:
-            torch.save(payload, path.open('wb'), pickle_module=dill)
-        
-        del payload
-        torch.cuda.empty_cache()
-        return str(path.absolute())
 
     def save_checkpoint(self, path=None, tag='latest', 
             exclude_keys=None,
@@ -521,9 +434,6 @@ class TrainDP3Workspace:
             return pathlib.Path(self.output_dir).joinpath('checkpoints', best_ckpt)
         else:
             raise NotImplementedError(f"tag {tag} not implemented")
-        
-    def get_cpkt_from_path(self, path, name):
-        return pathlib.Path(path).joinpath(f'{name}.ckpt')
             
             
 
@@ -585,13 +495,57 @@ class TrainDP3Workspace:
         return torch.load(open(path, 'rb'), pickle_module=dill)
     
 
-@hydra.main(
-    version_base=None,
+def parse_args():
+    parser = argparse.ArgumentParser(description='Train DP3 policy')
+    parser.add_argument('--algo_name', type=str,  default='idp3plus', 
+                       help='Algorithm name (e.g., dp3, simple_dp3)')
+    parser.add_argument('--task_name', type=str, default='g1_sim_place_expert',
+                       help='Task name (e.g., adroit_hammer, dexart_laptop)')
+    parser.add_argument('--addition_info', type=str, default='test',
+                       help='Additional info for experiment name (e.g., 0322)')
+    parser.add_argument('--seed', type=int, default=0,
+                       help='Random seed')
+    parser.add_argument('--gpu_id', type=int, default=0,
+                       help='GPU ID to use')
+    parser.add_argument('--debug', action='store_true',
+                       help='Enable debug mode')
+    parser.add_argument('--save_ckpt', action='store_true',
+                       help='Save checkpoints during training')
+    
+    return parser.parse_args()
+
+
+def load_config_from_yaml(config_name):
+    """Load YAML config file and convert to OmegaConf"""
+    cfg_name = config_name + '.yaml'
     config_path=str(pathlib.Path(__file__).parent.joinpath(
-        'diffusion_policy_3d', 'config'))
-)
-def main(cfg):
-    workspace = TrainDP3Workspace(cfg)
+        'diffusion_policy_3d', 'config' , cfg_name))
+    with open(config_path, 'r') as f:
+        config_dict = yaml.safe_load(f)
+    return OmegaConf.create(config_dict)
+
+def main():
+    args = parse_args()
+    
+    # Load config from YAML file
+    config = load_config_from_yaml(args.algo_name)
+
+    time_now = time.strftime("%Y%m%d-%H%M%S")
+    config.time = time_now
+    
+    # Update config based on command line arguments
+    config.training.debug = args.debug
+    config.training.seed = args.seed
+    config.checkpoint.save_ckpt = args.save_ckpt
+    
+    # Create experiment name and run directory
+    exp_name = f"{args.algo_name}-{args.task_name}-{args.addition_info}"
+    run_dir = f"data/outputs/{exp_name}_seed{args.seed}"
+    
+    # Set CUDA device
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu_id)
+    
+    workspace = TrainDP3Workspace(config, output_dir=run_dir)
     workspace.run()
 
 if __name__ == "__main__":
