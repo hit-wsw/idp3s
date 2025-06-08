@@ -25,6 +25,7 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
         'diffusion_policy_3d', 'config'))
 )
 def main(cfg):
+    #test
     path = '/home/wsw'
     name = '210'
     original_dict = {
