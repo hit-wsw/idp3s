@@ -8,6 +8,7 @@ from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from termcolor import cprint
 import copy
 import time
+from collections import OrderedDict, deque
 from diffusion_policy_3d.model.common.normalizer import LinearNormalizer
 from diffusion_policy_3d.policy.base_policy import BasePolicy
 from diffusion_policy_3d.model.diffusion.conditional_unet1d import ConditionalUnet1D
@@ -311,6 +312,92 @@ class DiffusionPointcloudPolicy(BasePolicy):
     # ========= training  ============
     def set_normalizer(self, normalizer: LinearNormalizer):
         self.normalizer.load_state_dict(normalizer.state_dict())
+
+    def set_to_gen_ac(self):
+        Ta = self.n_action_steps
+        action_queue = deque(maxlen=Ta)
+        self.action_queue = action_queue
+
+    def get_action(self, obs_dict):
+        if len(self.action_queue) == 0:
+            # [1,n_action_steps,Da]
+            action_sequence = self._get_action_trajectory(obs_dict=obs_dict)
+            self.action_queue.extend(action_sequence[0])
+
+        action = self.action_queue.popleft()
+
+        return action
+        
+    
+    def _get_action_trajectory(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        obs_dict: must include "obs" key
+        result: must include "action" key
+        """
+        # normalize input
+        nobs = self.normalizer.normalize(obs_dict)
+        if not self.use_pc_color:
+            nobs['point_cloud'] = nobs['point_cloud'][..., :3]
+        if self.use_pc_color: # normalize color
+            nobs['point_cloud'][..., 3:] /= 255.0
+        
+        
+        value = next(iter(nobs.values()))
+        B, To = value.shape[:2]
+        T = self.horizon
+        Da = self.action_dim
+        Do = self.obs_feature_dim
+        To = self.n_obs_steps
+
+        # build input
+        device = self.device
+        dtype = self.dtype
+
+        # handle different ways of passing observation
+        local_cond = None
+        global_cond = None
+        if self.obs_as_global_cond:
+            # condition through global feature
+            this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
+            nobs_features = self.obs_encoder(this_nobs)
+            if "cross_attention" in self.condition_type:
+                # treat as a sequence
+                global_cond = nobs_features.reshape(B, self.n_obs_steps, -1)
+            else:
+                # reshape back to B, Do
+                global_cond = nobs_features.reshape(B, -1)
+            # empty data for action
+            cond_data = torch.zeros(size=(B, T, Da), device=device, dtype=dtype)
+            cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
+        else:
+            # condition through impainting
+            this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
+            nobs_features = self.obs_encoder(this_nobs)
+            # reshape back to B, T, Do
+            nobs_features = nobs_features.reshape(B, To, -1)
+            cond_data = torch.zeros(size=(B, T, Da+Do), device=device, dtype=dtype)
+            cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
+            cond_data[:,:To,Da:] = nobs_features
+            cond_mask[:,:To,Da:] = True
+
+        # run sampling
+        nsample = self.conditional_sample(
+            cond_data, 
+            cond_mask,
+            local_cond=local_cond,
+            global_cond=global_cond,
+            **self.kwargs)
+        
+        # unnormalize prediction
+        naction_pred = nsample[...,:Da]
+        action_pred = self.normalizer['action'].unnormalize(naction_pred)
+
+        # get action
+        start = To - 1
+        end = start + self.n_action_steps
+        action = action_pred[:,start:end]
+
+        return action
 
     def compute_loss(self, batch):
         # normalize input

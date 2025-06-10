@@ -101,7 +101,7 @@ class MultiStagePointNetEncoder(nn.Module):
     def __init__(self, h_dim=128, out_channels=128, num_layers=4, **kwargs):
         super().__init__()
 
-        fps_num = 16;group_num = 256;radius = 0.2
+        fps_num = 8;group_num = 512;radius = 0.2
         self.h_dim = h_dim
         self.out_channels = out_channels
         self.num_layers = num_layers
@@ -136,46 +136,33 @@ class MultiStagePointNetEncoder(nn.Module):
         self.conv_out = nn.Conv1d(h_dim * self.num_layers, out_channels, kernel_size=1)
 
     def forward(self, x):
-        x, center_x = self.preprocessor(x)
+    # 1. 预处理并释放原始点云
+        grouped_points, center_x = self.preprocessor(x)  # [B, K, N, 3]
+        del x
+        # 2. 向量化处理所有组
+        B, K, N, _ = grouped_points.shape
+        grouped_points = grouped_points.reshape(B * K, N, 3).transpose(1, 2)  # [B*K, 3, N]
+        
+        # 3. 批量卷积处理
+        y = self.act(self.conv_in(grouped_points))  # [B*K, h_dim, N]
+        feat_list = []
+        for i in range(self.num_layers):
+            y = self.act(self.layers[i](y))
+            y_global = y.max(-1, keepdim=True).values
+            y = torch.cat([y, y_global.expand_as(y)], dim=1)
+            y = self.act(self.global_layers[i](y))
+            feat_list.append(y)
+        
+        # 4. 合并特征并聚合
+        y = torch.cat(feat_list, dim=1)
+        y = self.conv_out(y).max(-1).values  # [B*K, out_channels]
+        y_global = y.reshape(B, K, -1).max(1).values  # [B, out_channels]
 
-        center_x = self.mlp(center_x)
-        center_x = torch.max(center_x, 1)[0]
+        # 5. 处理中心点特征
+        center_x = self.mlp(center_x).max(1)[0]
         center_x_feature = self.final_projection(center_x)
 
-        # x shape: [B, K, N, 3]
-        B, K, N, _ = x.shape
-        
-        # 初始化一个列表来存储每组的结果
-        group_outputs = []
-        
-        # 对每一组进行处理
-        for k in range(K):
-            # 获取当前组的点云数据 [B, N, 3]
-            group_x = x[:, k, :, :]
-            
-            # 原始处理流程
-            group_x = group_x.transpose(1, 2)  # [B, 3, N]
-            y = self.act(self.conv_in(group_x))  # [B, out_channels, N]
-            feat_list = []
-            
-            for i in range(self.num_layers):
-                y = self.act(self.layers[i](y))
-                y_global = y.max(-1, keepdim=True).values  # [B, out_channels, 1]
-                y = torch.cat([y, y_global.expand_as(y)], dim=1)  # [B, out_channels*2, N]
-                y = self.act(self.global_layers[i](y))  # [B, out_channels, N]
-                feat_list.append(y)
-            
-            group_x = torch.cat(feat_list, dim=1)
-            group_x = self.conv_out(group_x)
-            group_x_global = group_x.max(-1).values  # [B, out_channels]
-            
-            group_outputs.append(group_x_global)
-        
-        # 将所有组的结果堆叠起来 [B, K, out_channels]
-        x_global = torch.stack(group_outputs, dim=1)
-        x_global = x_global.max(dim=1).values
-        
-        return x_global,center_x_feature
+        return y_global, center_x_feature
 
         
 

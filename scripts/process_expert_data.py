@@ -176,9 +176,6 @@ def main():
     os.makedirs(save_dir, exist_ok=True)    
 
     process_zarr_data(save_dir, args.meatdata_path, args.pcd_sample, args.img_size, args.gen_table, args.table_threshold)
-
-
-    
     
 if __name__ == '__main__':
     main()

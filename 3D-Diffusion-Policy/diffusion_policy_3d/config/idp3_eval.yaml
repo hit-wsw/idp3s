@@ -1,17 +1,47 @@
 defaults:
   - task: adroit_hammer
 
-name: idp3plus
+task:
+  name: g1_sim_place_expert
+
+  task_name: place
+
+  shape_meta: &shape_meta
+    # acceptable types: rgb, low_dim
+    obs:
+      point_cloud:
+        shape: [10000, 3]
+        type: point_cloud
+      agent_pos:
+        shape: [27]
+        type: low_dimx
+    action:
+      shape: [27]
+
+  env_runner: null
+
+  dataset:
+    _target_: diffusion_policy_3d.dataset.realdex_dataset.RealDexDataset
+    zarr_path: /home/wsw/D_wsw_ws/3d_dp/3D-Diffusion-Policy/3D-Diffusion-Policy/data/g1_sim_place_expert.zarr
+    horizon: ${horizon}
+    pad_before: ${eval:'${n_obs_steps}-1'}
+    pad_after: ${eval:'${n_action_steps}-1'}
+    seed: 42
+    val_ratio: 0.02
+    max_train_episodes: 90
+
+
+name: idp3
 
 task_name: ${task.name}
 shape_meta: ${task.shape_meta}
 exp_name: "debug"
 
 # horizon: 4
-horizon: 24
-n_obs_steps: 4
+horizon: 16
+n_obs_steps: 2
 # n_action_steps: 3
-n_action_steps: 10
+n_action_steps: 15
 n_latency_steps: 0
 dataset_obs_steps: ${n_obs_steps}
 keypoint_visible_rate: 1.0
@@ -20,7 +50,7 @@ obs_as_global_cond: True
 use_image: false
 
 policy:
-  _target_: diffusion_policy_3d.policy.idp3plus.DiffusionPointcloudPolicy
+  _target_: diffusion_policy_3d.policy.idp3.DiffusionPointcloudPolicy
   use_point_crop: true
   use_down_condition: true
   use_mid_condition: true
@@ -59,6 +89,8 @@ policy:
   pointnet_type: "multi_stage_pointnet"
 
   point_downsample: true
+
+ 
 
   pointcloud_encoder_cfg:
     in_channels: 3
@@ -110,7 +142,7 @@ training:
   gradient_accumulate_every: 1
   use_ema: True
   rollout_every: 400
-  checkpoint_every: 1
+  checkpoint_every: 100
   val_every: 100
   sample_every: 5
   max_train_steps: null
@@ -130,7 +162,7 @@ logging:
   - dexdeform
 
 checkpoint:
-  save_ckpt: True # if True, save checkpoint every checkpoint_every
+  save_ckpt: False # if True, save checkpoint every checkpoint_every
   topk:
     monitor_key: test_mean_score
     mode: max

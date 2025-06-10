@@ -8,10 +8,10 @@ def gen_pcd(metadata_root):
     """
     生成点云
     """
-    '''color_jpg_path = os.path.join(metadata_root, '000000_color_0.png')
-    depth_png_path = os.path.join(metadata_root, '000000_depth_0.png')'''
-    color_jpg_path = os.path.join(metadata_root, 'color_image.jpg')
-    depth_png_path = os.path.join(metadata_root, 'depth_image.png')
+    color_jpg_path = os.path.join(metadata_root, '000000_color_0.png')
+    depth_png_path = os.path.join(metadata_root, '000000_depth_0.png')
+    '''color_jpg_path = os.path.join(metadata_root, 'color_image.jpg')
+    depth_png_path = os.path.join(metadata_root, 'depth_image.png')'''
     color_image_o3d = o3d.io.read_image(color_jpg_path)
     depth_image_o3d = o3d.io.read_image(depth_png_path)
     max_depth = 1000

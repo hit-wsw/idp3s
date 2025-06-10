@@ -7,14 +7,14 @@
             "name": "Debug gen_pose.py",
             "type": "python",
             "request": "launch",
-            //"program": "${workspaceFolder}/3D-Diffusion-Policy/train.py",
-            "program": "${workspaceFolder}/3D-Diffusion-Policy/gen_pose.py",
+            "program": "${workspaceFolder}/3D-Diffusion-Policy/train.py",
+            //"program": "${workspaceFolder}/3D-Diffusion-Policy/gen_pose.py",
             "args": [
                 "--config-name=idp3plus.yaml",  // 替换为你的配置文件（如 simple_dp3.yaml）
                 "task=g1_sim_place_expert",      // 替换为你的任务名
                 "hydra.run.dir=data/outputs/debug_output",  // 自定义输出目录
-                //"training.debug=True",     // 启用调试模式（减少epoch和step）
-                "training.debug=False",
+                "training.debug=True",     // 启用调试模式（减少epoch和step）
+                //"training.debug=False",
                 "training.seed=0",        // 随机种子
                 "training.device=cuda:0",  // 使用GPU（或改为cpu）
                 "exp_name=debug-test",     // 实验名称

@@ -8,9 +8,10 @@ from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from termcolor import cprint
 import copy
 import time
+from collections import OrderedDict, deque
 from diffusion_policy_3d.model.common.normalizer import LinearNormalizer
 from diffusion_policy_3d.policy.base_policy import BasePolicy
-from diffusion_policy_3d.model.diffusion.conditional_unet1d import ConditionalUnet1D
+from diffusion_policy_3d.model.diffusion.conditional_unet1dcenter import ConditionalUnet1D
 from diffusion_policy_3d.model.diffusion.mask_generator import LowdimMaskGenerator
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.model_util import print_params
@@ -118,6 +119,7 @@ class DiffusionPointcloudPolicy(BasePolicy):
         self.n_obs_steps = n_obs_steps
         self.obs_as_global_cond = obs_as_global_cond
         self.kwargs = kwargs
+        self.action_queue = None
 
         if num_inference_steps is None:
             num_inference_steps = noise_scheduler.config.num_train_timesteps
@@ -315,7 +317,23 @@ class DiffusionPointcloudPolicy(BasePolicy):
         
         return result
     
-    def gen_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def set_to_gen_ac(self):
+        Ta = self.n_action_steps
+        action_queue = deque(maxlen=Ta)
+        self.action_queue = action_queue
+
+    def get_action(self, obs_dict):
+        if len(self.action_queue) == 0:
+            # [1,n_action_steps,Da]
+            action_sequence = self._get_action_trajectory(obs_dict=obs_dict)
+            self.action_queue.extend(action_sequence[0])
+
+        action = self.action_queue.popleft()
+
+        return action
+        
+    
+    def _get_action_trajectory(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
         obs_dict: must include "obs" key
         result: must include "action" key
@@ -383,13 +401,9 @@ class DiffusionPointcloudPolicy(BasePolicy):
         action_pred = self.normalizer['action'].unnormalize(naction_pred)
 
         # get action
-        start = To - 1
+        start = To
         end = start + self.n_action_steps
         action = action_pred[:,start:end]
-
-        action = action[0]
-        
-        # get prediction
 
         return action
 
@@ -499,8 +513,16 @@ class DiffusionPointcloudPolicy(BasePolicy):
 
         loss = F.mse_loss(pred, target, reduction='none')
         loss = loss * loss_mask.type(loss.dtype)
+        waist_loss = 0.1 * loss[..., 0]
+        arm_loss = 0.6 * loss[..., 1:15]
+        hand_loss = 0.3 * loss[..., 15:] 
         loss = reduce(loss, 'b ... -> b (...)', 'mean')
-        loss = loss.mean()
+        waist_loss = reduce(waist_loss, 'b ... -> b (...)', 'mean').mean()
+        arm_loss = reduce(arm_loss, 'b ... -> b (...)', 'mean').mean()
+        hand_loss = reduce(hand_loss, 'b ... -> b (...)', 'mean').mean()
+
+        #loss = loss.mean()
+        loss = waist_loss + arm_loss + hand_loss
         
 
         loss_dict = {
