@@ -82,7 +82,7 @@ class StateEncoder(nn.Module):
 class iDP3Encoder(nn.Module):
     def __init__(self, 
                  observation_space: Dict, 
-                 state_mlp_size=None, state_mlp_activation_fn=nn.ReLU,
+                 state_mlp_size=(64, 64), state_mlp_activation_fn=nn.ReLU,
                  pointcloud_encoder_cfg=None,
                  use_pc_color=False,
                  pointnet_type='dp3_encoder',
@@ -122,8 +122,16 @@ class iDP3Encoder(nn.Module):
             raise NotImplementedError(f"pointnet_type: {pointnet_type}")
 
 
-        self.n_output_channels  += self.state_shape[0]
-        #self.state_mlp = nn.Sequential(*create_mlp(self.state_shape[0], output_dim, net_arch, state_mlp_activation_fn))
+        if len(state_mlp_size) == 0:
+            raise RuntimeError(f"State mlp size is empty")
+        elif len(state_mlp_size) == 1:
+            net_arch = []
+        else:
+            net_arch = state_mlp_size[:-1]
+        output_dim = state_mlp_size[-1]
+
+        self.n_output_channels  += output_dim
+        self.state_mlp = nn.Sequential(*create_mlp(self.state_shape[0], output_dim, net_arch, state_mlp_activation_fn))
 
         cprint(f"[DP3Encoder] output dim: {self.n_output_channels}", "red")
 
@@ -140,7 +148,7 @@ class iDP3Encoder(nn.Module):
         pn_feat,center_feature = self.extractor(points)    # B * out_channel
          
         state = observations[self.state_key]
-        state_feat = state  # B * 27
+        state_feat = self.state_mlp(state)  # B * 64
         final_feat = torch.cat([pn_feat, state_feat], dim=-1)
         final_feat_center = torch.cat([center_feature, state_feat], dim=-1)
         return final_feat, final_feat_center
