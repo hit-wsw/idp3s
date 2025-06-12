@@ -52,7 +52,7 @@ def gen_pcd(color_jpg_path, depth_png_path, num_points_to_sample, gen_table, thr
             plane = np.array([float(x) for x in line.split()])
         color_pcd, table_pcd = filter_points_by_plane(color_pcd, plane, threshold)
         
-        num_table_points = int(0.05 * len(table_pcd))
+        num_table_points = int(0.0 * len(table_pcd))
         if num_table_points > 0:
             table_indices = np.random.choice(len(table_pcd), num_table_points, replace=False)
             color_pcd = np.concatenate((color_pcd, table_pcd[table_indices]))

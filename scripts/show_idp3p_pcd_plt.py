@@ -156,7 +156,7 @@ def process_and_visualize(color_jpg_path, depth_png_path, fps_num=8, group_num=5
     """
     num_points_to_sample = 4096  # Number of points to sample from the point cloud
     gen_table = False  # Whether to generate table points
-    threshold = 0.05  # Threshold for filtering points close to the plane
+    threshold = 0.005  # Threshold for filtering points close to the plane
 
     # 1. 生成点云
     _,xyz = gen_pcd(color_jpg_path, depth_png_path, num_points_to_sample, gen_table, threshold)  # 假设返回的是[N,3] numpy数组
@@ -172,5 +172,5 @@ def process_and_visualize(color_jpg_path, depth_png_path, fps_num=8, group_num=5
     visualize_point_clouds(combined_points, representative_points, fps_num)
 
 # 使用示例
-color_path = 'table_pcd/color_image.jpg';depth_path = 'table_pcd/depth_image.png'
-process_and_visualize(color_path, depth_path, fps_num=4)
+color_path = 'table_pcd/000236_color_0.png';depth_path = 'table_pcd/000236_depth_0.png'
+process_and_visualize(color_path, depth_path, fps_num=8)
