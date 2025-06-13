@@ -15,7 +15,7 @@ from diffusion_policy_3d.model.diffusion.conditional_unet1dcenter import Conditi
 from diffusion_policy_3d.model.diffusion.mask_generator import LowdimMaskGenerator
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.model_util import print_params
-from diffusion_policy_3d.model.vision_3d_plus.pointnet_extractor import iDP3Encoder
+from diffusion_policy_3d.model.vision_3d_plus.pointnet_extractor_state import iDP3Encoder
 
 class DiffusionPointcloudPolicy(BasePolicy):
     def __init__(self, 
@@ -194,6 +194,52 @@ class DiffusionPointcloudPolicy(BasePolicy):
 
 
     # ========= inference  ============
+
+    def conditional_sample_list(self, 
+            condition_data, condition_mask,
+            condition_data_pc=None, condition_mask_pc=None,
+            local_cond=None, global_cond=None, center_cond = None,
+            generator=None,
+            # keyword arguments to scheduler.step
+            **kwargs
+            ):
+        model = self.model
+        scheduler = self.noise_scheduler
+        traj_list = []
+
+
+        trajectory = torch.randn(
+            size=condition_data.shape, 
+            dtype=condition_data.dtype,
+            device=condition_data.device)
+        
+        traj_list.append(trajectory)
+
+        # set step values
+        scheduler.set_timesteps(self.num_inference_steps)
+
+
+        for t in scheduler.timesteps:
+            # 1. apply conditioning
+            trajectory[condition_mask] = condition_data[condition_mask]
+
+
+            model_output = model(sample=trajectory,
+                                timestep=t, 
+                                local_cond=local_cond, global_cond=global_cond, center_cond=center_cond)
+            
+            # 3. compute previous image: x_t -> x_t-1
+            trajectory = scheduler.step(
+                model_output, t, trajectory, ).prev_sample
+            
+            traj_list.append(trajectory)
+               
+        # finally make sure conditioning is enforced
+        trajectory[condition_mask] = condition_data[condition_mask]   
+
+
+        return trajectory, traj_list, scheduler.timesteps
+    
     def conditional_sample(self, 
             condition_data, condition_mask,
             condition_data_pc=None, condition_mask_pc=None,
@@ -228,7 +274,7 @@ class DiffusionPointcloudPolicy(BasePolicy):
             trajectory = scheduler.step(
                 model_output, t, trajectory, ).prev_sample
             
-                
+               
         # finally make sure conditioning is enforced
         trajectory[condition_mask] = condition_data[condition_mask]   
 
@@ -331,6 +377,22 @@ class DiffusionPointcloudPolicy(BasePolicy):
         action = self.action_queue.popleft()
 
         return action
+    
+    def get_action_show(self, obs_dict):
+        if len(self.action_queue) == 0:
+            # [1,n_action_steps,Da]
+            _, list, time_list = self._get_action_trajectory_show_noise(obs_dict=obs_dict)
+            list = [ac[0][0] for ac in list]
+
+        return list, time_list
+    
+    def get_action_show_fix_joint(self, obs_dict):
+        if len(self.action_queue) == 0:
+            # [1,n_action_steps,Da]
+            _, list, time_list = self._get_action_trajectory_show_noise(obs_dict=obs_dict)
+            list = [ac[0] for ac in list]
+
+        return list, time_list
         
     
     def _get_action_trajectory(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -406,6 +468,85 @@ class DiffusionPointcloudPolicy(BasePolicy):
         action = action_pred[:,start:end]
 
         return action
+    
+    def _get_action_trajectory_show_noise(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        obs_dict: must include "obs" key
+        result: must include "action" key
+        """
+        # normalize input
+        nobs = self.normalizer.normalize(obs_dict)
+        if not self.use_pc_color:
+            nobs['point_cloud'] = nobs['point_cloud'][..., :3]
+        if self.use_pc_color: # normalize color
+            nobs['point_cloud'][..., 3:] /= 255.0
+        
+        
+        value = next(iter(nobs.values()))
+        B, To = value.shape[:2]
+        T = self.horizon
+        Da = self.action_dim
+        Do = self.obs_feature_dim
+        To = self.n_obs_steps
+
+        # build input
+        device = self.device
+        dtype = self.dtype
+
+        # handle different ways of passing observation
+        local_cond = None
+        global_cond = None
+        center_cond = None
+        if self.obs_as_global_cond:
+            # condition through global feature
+            this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
+            nobs_features, center_features = self.obs_encoder(this_nobs)
+            if "cross_attention" in self.condition_type:
+                # treat as a sequence
+                global_cond = nobs_features.reshape(B, self.n_obs_steps, -1)
+                center_cond = center_features.reshape(B, self.n_obs_steps, -1)
+            else:
+                # reshape back to B, Do
+                global_cond = nobs_features.reshape(B, -1)
+                center_cond = center_features.reshape(B, -1)
+            # empty data for action
+            cond_data = torch.zeros(size=(B, T, Da), device=device, dtype=dtype)
+            cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
+        else:
+            # condition through impainting
+            this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
+            nobs_features = self.obs_encoder(this_nobs)
+            # reshape back to B, T, Do
+            nobs_features = nobs_features.reshape(B, To, -1)
+            cond_data = torch.zeros(size=(B, T, Da+Do), device=device, dtype=dtype)
+            cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
+            cond_data[:,:To,Da:] = nobs_features
+            cond_mask[:,:To,Da:] = True
+
+        # run sampling
+        nsample, list_ac, time_list = self.conditional_sample_list(
+            cond_data, 
+            cond_mask,
+            local_cond=local_cond,
+            global_cond=global_cond,
+            center_cond=center_cond,
+            **self.kwargs)
+        
+        # unnormalize prediction
+        naction_pred = nsample[...,:Da]
+        action_pred = self.normalizer['action'].unnormalize(naction_pred)
+
+        # get action
+        start = To
+        end = start + self.n_action_steps
+        action = action_pred[:,start:end]
+
+        list_ac = [
+            self.normalizer['action'].unnormalize(ac_p[...,:Da])[:,start:end]
+            for ac_p in list_ac
+        ]
+
+        return action,list_ac, time_list
 
     # ========= training  ============
     def set_normalizer(self, normalizer: LinearNormalizer):

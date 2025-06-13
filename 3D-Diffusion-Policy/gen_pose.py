@@ -1,3 +1,6 @@
+'''
+This code is used for visualized diffusion
+'''
 if __name__ == "__main__":
     import sys
     import os
@@ -22,8 +25,10 @@ from diffusion_policy_3d.policy.idp3plus import DiffusionPointcloudPolicy as idp
 import matplotlib.pyplot as plt
 import argparse
 import yaml
-from math import ceil
-from sklearn.metrics import mean_squared_error
+import matplotlib.animation as animation
+from matplotlib.animation import PillowWriter
+import numpy as np
+from PIL import Image
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
@@ -105,6 +110,23 @@ class TrainDP3Workspace:
             action = self.model.get_action(state)
             return action.cpu().numpy()
         
+    def _get_action_from_policy_show(self, frame_dict):
+        state = self.transform_state_dict(frame_dict)
+        with torch.no_grad():
+            action_list, time_list = self.model.get_action_show(state)
+            time_list = time_list.cpu().numpy()
+            ac_data = [tensor.cpu().numpy() for tensor in action_list]
+            return ac_data,time_list
+        
+    def _get_action_from_policy_show_fix_joint(self, frame_dict):
+        state = self.transform_state_dict(frame_dict)
+        with torch.no_grad():
+            action_list, time_list = self.model.get_action_show_fix_joint(state)
+            time_list = time_list.cpu().numpy()
+            ac_data = [tensor.cpu().numpy() for tensor in action_list]
+            return ac_data,time_list
+
+        
     def _load_policy(self, cpkt_path, cpkt_name):
         cpkt = self.get_cpkt_from_path(cpkt_path, cpkt_name)
         if cpkt.is_file():
@@ -144,88 +166,210 @@ class TrainDP3Workspace:
         demo_starts = np.concatenate(([0], episode_ends[:-1]))
         demo_ends = episode_ends
         return data, demo_starts, demo_ends
-    
-    def _plot_action_group(self, demo_idx, group_name, dims, original_actions, predicted_actions):
-        """绘制单个动作组的子图比较（含MSE指标）"""
-        num_dims = len(dims)
-        num_rows = ceil(num_dims / 4)  # 每行最多4个子图
-        fig, axes = plt.subplots(num_rows, min(4, num_dims), 
-                           figsize=(15, 3*num_rows))
+
+    def show_diffuser(self, frame_dict):
+        """
+        Show denoising process with each step in a separate figure
         
-        # 计算该组整体MSE
-        group_mse = mean_squared_error(
-            original_actions[:, dims], 
-            predicted_actions[:, dims]
+        Parameters:
+            action_list (list): List of denoising steps, each element is [27] array
+            time_list (list): List of timesteps
+        """
+        # Convert to numpy arrays
+        action_list,time_list = self._get_action_from_policy_show(frame_dict)
+        action_array = np.array(action_list)
+        time_array = np.array(time_list)
+        
+        T, dim = action_array.shape
+        
+        for t in range(T):
+            # Create a new figure for each timestep
+            plt.figure(figsize=(10, 6))
+            
+            # Create the bar plot
+            bars = plt.bar(range(dim), action_array[t], color='skyblue')
+            
+            # Set titles and labels
+            if t == 0:
+                plt.title("Denoising Process: Pure Noise")
+            else:
+                plt.title(f"Denoising Process: t={time_array[t-1]}")
+            
+            plt.xlabel("Dimension")
+            plt.ylabel("Value")
+            plt.xticks(range(0, dim, 3))  # Show every 3rd dimension label
+            plt.ylim(min(action_array.min(), -1), max(action_array.max(), 1))
+            plt.grid(True, axis='y', linestyle='--', alpha=0.7)
+            
+            # Highlight significant changes (for steps after the first)
+            if t > 0:
+                changes = np.abs(action_array[t] - action_array[t-1])
+                for i, change in enumerate(changes):
+                    if change > 0.1:  # Threshold for significant change
+                        bars[i].set_color('skyblue')
+            
+            plt.tight_layout()
+            plt.show()
+
+    def show_diffuser_gif(self, frame_dict, filename="denoising_process.gif"):
+        """
+        Create an animated GIF of the denoising process
+        
+        Parameters:
+            action_list (list): List of denoising steps, each element is [27] array
+            time_list (list): List of timesteps
+            filename (str): Output GIF filename
+        """
+        # Convert to numpy arrays
+        action_list,time_list = self._get_action_from_policy_show(frame_dict)
+        action_array = np.array(action_list)
+        time_array = np.array(time_list)
+        
+        T, dim = action_array.shape
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        def update(t):
+            ax.clear()
+            bars = ax.bar(range(dim), action_array[t], color='skyblue')
+            
+            # Set titles and labels
+            if t == 0:
+                ax.set_title("Denoising Process: Pure Noise")
+            else:
+                ax.set_title(f"Denoising Process: t={time_array[t-1]}")
+            
+            ax.set_xlabel("Dimension")
+            ax.set_ylabel("Value")
+            ax.set_xticks(range(0, dim, 3))
+            ax.set_ylim(min(action_array.min(), -1), max(action_array.max(), 1))
+            ax.grid(True, axis='y', linestyle='--', alpha=0.7)
+            
+            # Highlight significant changes
+            if t > 0:
+                changes = np.abs(action_array[t] - action_array[t-1])
+                for i, change in enumerate(changes):
+                    if change > 0.1:  # Threshold for significant change
+                        bars[i].set_color('skyblue')
+            
+            return bars
+        
+        ani = animation.FuncAnimation(
+            fig, update, frames=T, interval=500, blit=False
         )
-        fig.suptitle(
-            f'Demo {demo_idx+1} - {group_name.capitalize()} (MSE: {group_mse:.4e})',
-            fontsize=14, y=1.05
-        )
         
-        if num_dims == 1:
-            axes = np.array([axes])  # 确保1个子图也能迭代
-        
-        # 展平axes数组方便迭代
-        axes = axes.flatten() if num_rows > 1 else axes
-        
-        for i, dim in enumerate(dims):
-            ax = axes[i]
-            original = original_actions[:, dim]
-            predicted = predicted_actions[:, dim]
-            diff = predicted - original
-            
-            # 计算当前维度MSE
-            dim_mse = mean_squared_error(original, predicted)
-            
-            # 绘制三条曲线
-            ax.plot(original, 'b-', label='Original', alpha=0.8, linewidth=1.5)
-            ax.plot(predicted, 'r-', label='Predicted', alpha=0.8, linewidth=1.5)
-            ax.plot(diff, 'g-', label='Difference', alpha=0.6, linewidth=1)
-            
-            ax.set_title(f'Dim {dim} (MSE: {dim_mse:.2e})', pad=8, fontsize=10)
-            ax.set_xlabel('Frame', fontsize=8)
-            ax.set_ylabel('Value', fontsize=8)
-            ax.grid(True, alpha=0.3)
-            ax.tick_params(axis='both', labelsize=8)
-            
-            # 只在第一个子图显示图例
-            if i == 0:
-                ax.legend(loc='upper right', fontsize=8, framealpha=0.5)
-        
-        # 隐藏多余的空子图
-        for j in range(i+1, len(axes)):
-            axes[j].axis('off')
-        
-        plt.tight_layout()
-        plt.savefig(
-            f'/home/wsw/D_wsw_ws/3d_dp/idp3_fig/action_comparison_demo{demo_idx+1}_{group_name}.png', 
-            dpi=150, 
-            bbox_inches='tight'
-        )
-        cprint(f"Saved action comparison plot for Demo {demo_idx+1} - {group_name}", 'green')
+        # Save as GIF
+        writer = PillowWriter(fps=2)  
+        ani.save(filename, writer=writer)
         plt.close()
-    
-    def _plot_action_differences(self, demo_idx, original_actions, predicted_actions):
-        """绘制所有动作组的比较图"""
-        action_groups = [
-            ('waist', [0]),
-            ('leftarm', range(1, 8)),
-            ('rightarm', range(8, 15)),
-            ('lefthand', range(15, 21)),
-            ('righthand', range(21, 27))
-        ]
+        print(f"GIF saved as {filename}")
+
+    def show_diffuser_fix_joint(self, frame_dict):
+        """
+        展示扩散过程中第0维度动作的变化，生成T+1张图
         
-        for group_name, dims in action_groups:
-            self._plot_action_group(demo_idx, group_name, dims, 
-                                  original_actions, predicted_actions)
+        参数:
+        - action_list: 长度为T+1的列表，每个元素是[time, 27]的array
+        - time_list: 长度为T的array，表示扩散去噪时的时间步
+        """
+        # 确保 action_list 长度为 T+1，time_list 长度为 T
+        action_list,time_list = self._get_action_from_policy_show_fix_joint(frame_dict)
+        assert len(action_list) == len(time_list) + 1, "action_list 长度应为 time_list 长度 +1"
+        
+        # 生成 T+1 张图
+        for k in range(len(action_list)):
+            action = action_list[k]  # 当前动作序列 [time, 27]
+            time_steps = np.arange(action.shape[0])  # 横坐标: 0 到 time-1
+            dim0_action = action[:, 0]  # 第0维度的动作序列
+            
+            plt.figure(figsize=(10, 4))
+            
+            if k == 0:
+                plt.title(f"Action[0] - Pure Noise (Step 0)")
+            else:
+                plt.title(f"Action[0] - Denoised at Step {time_list[k-1]}")
+            
+            plt.plot(time_steps, dim0_action, 'b-', linewidth=2)
+            plt.xlabel("Time Step (0 to time-1)")
+            plt.ylabel("Action[0] Value")
+            plt.grid(True)
+            plt.show()
+
+    def show_diffuser_gif_fixed_joint(self, frame_dict, gif_path="denoising_process_fixed.gif", fps=2):
+        """
+        将扩散过程中第0维度动作的变化生成GIF动画
+        
+        参数:
+        - action_list: 长度为T+1的列表，每个元素是[time, 27]的array
+        - time_list: 长度为T的array，表示扩散去噪时的时间步
+        - gif_path: 输出的GIF文件路径
+        - fps: 帧率 (frames per second)
+        """
+        action_list,time_list = self._get_action_from_policy_show_fix_joint(frame_dict)
+        assert len(action_list) == len(time_list) + 1, "action_list 长度应为 time_list 长度 +1"
     
+        # 临时保存所有帧的目录
+        temp_dir = "temp_frames"
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # 生成所有帧并保存为图片
+        frame_paths = []
+        for k in range(len(action_list)):
+            action = action_list[k]
+            time_steps = np.arange(action.shape[0])
+            dim0_action = action[:, 0]
+            
+            fig = plt.figure(figsize=(10, 4))
+            
+            if k == 0:
+                plt.title(f"Action[0] - Pure Noise (Step 0)", fontsize=12)
+            else:
+                plt.title(f"Action[0] - Denoised at Step {time_list[k-1]}", fontsize=12)
+            
+            plt.plot(time_steps, dim0_action, 'b-', linewidth=2)
+            plt.xlabel("Time Step (0 to time-1)", fontsize=10)
+            plt.ylabel("Action[0] Value", fontsize=10)
+            plt.grid(True)
+            
+            # 保存帧
+            frame_path = os.path.join(temp_dir, f"frame_{k:03d}.png")
+            plt.savefig(frame_path, bbox_inches='tight', dpi=100)
+            frame_paths.append(frame_path)
+            plt.close(fig)  # 明确关闭图形
+        
+        # 确保所有图片尺寸一致
+        images = []
+        first_image = Image.open(frame_paths[0])
+        for path in frame_paths:
+            img = Image.open(path)
+            # 转换为RGB模式并调整尺寸以匹配第一帧
+            img = img.convert('RGB').resize(first_image.size)
+            images.append(img)
+        
+        # 将帧合成为GIF
+        images[0].save(
+            gif_path,
+            format='GIF',
+            append_images=images[1:],
+            save_all=True,
+            duration=1000//fps,  # 每帧持续时间(ms)
+            loop=0  # 无限循环
+        )
+        
+        # 清理临时文件
+        for frame in frame_paths:
+            os.remove(frame)
+        os.rmdir(temp_dir)
+        
+        print(f"GIF saved to {gif_path}")
+
     def get_pose_from_policy(self, cpkt_path, cpkt_name, zarr_path):
         """主函数：从策略获取姿态并比较动作"""
         self._load_policy(cpkt_path, cpkt_name)
         data, demo_starts, demo_ends = self._load_demo_data(zarr_path)
         
         # 随机选择2个demo
-        selected_indices = np.random.choice(len(demo_starts), size=2, replace=False)
+        selected_indices = np.random.choice(len(demo_starts), size=1, replace=False)
         
         for demo_idx, idx in enumerate(selected_indices):
             start = demo_starts[idx]
@@ -235,30 +379,20 @@ class TrainDP3Workspace:
             # 提取demo数据
             demo_pcd = data['point_cloud'][start:end]
             demo_state = data['state'][start:end]
-            original_actions = data['action'][start:end]
+
             
-            predicted_actions = []
-            for i in range(demo_length):
-                frame_dict = self._create_frame_dict(demo_pcd, demo_state, i, demo_length, num = self.cfg.n_obs_steps)
-                action = self._get_action_from_policy(frame_dict)
-                predicted_actions.append(action)
-            
-            predicted_actions = np.array(predicted_actions)
-            
-            # 确保形状一致
-            min_length = min(predicted_actions.shape[0], original_actions.shape[0])
-            predicted_actions = predicted_actions[:min_length]
-            original_actions = original_actions[:min_length]
-            
-            # 绘制分组动作比较图
-            self._plot_action_differences(demo_idx, original_actions, predicted_actions)
-        
+            frame_dict = self._create_frame_dict(demo_pcd, demo_state, 0, demo_length, num = self.cfg.n_obs_steps)
+            #self.show_diffuser_fix_joint(frame_dict)
+            self.show_diffuser_gif_fixed_joint(frame_dict)
+            #self.show_diffuser(frame_dict)
+            #self.show_diffuser_gif(frame_dict)
+                       
         return "Action group comparison plots generated."
 
     
 def parse_args():
     parser = argparse.ArgumentParser(description='Train DP3 policy')
-    parser.add_argument('--algo_name', type=str,  default='idp3_eval', 
+    parser.add_argument('--algo_name', type=str,  default='idp3plus_eval', 
                        help='Algorithm name (e.g., idp3plus_eval, idp3_eval)')
     return parser.parse_args()
 
@@ -274,8 +408,8 @@ def load_config_from_yaml(config_name):
 def main():
     args = parse_args()
     config = load_config_from_yaml(args.algo_name)
-    path = '/media/wsw/SSD1T1/data/idp/idp3/g1_sim_small_place_expert-idp3-first_seed0/checkpoints';name = 'latest'
-    #path = '/media/wsw/SSD1T1/data/idp/idp3p/table/g1_sim_medium_6000_expert-idp3plus-loss4-16-8_seed0/checkpoints';name = '200'
+    #path = '/media/wsw/SSD1T1/data/idp/idp3/g1_sim_small_place_expert-idp3-first_seed0/checkpoints';name = 'latest'
+    path = '/media/wsw/SSD1T1/data/idp/idp3p/table/g1_sim_medium_6000_expert-idp3plus-loss4-16-8_seed0/checkpoints';name = '200'
     workspace = TrainDP3Workspace(config)
     #zarr_path = "/media/wsw/SSD1T1/data/idp3_data/g1_sim_small_4096_expert.zarr"
     zarr_path = '/media/wsw/SSD1T1/data/idp3_data/g1_sim_place_expert.zarr'
