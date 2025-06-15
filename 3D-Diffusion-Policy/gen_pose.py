@@ -1,5 +1,5 @@
 '''
-This code is used for visualized diffusion
+This code is used for visualizing diffusion process
 '''
 if __name__ == "__main__":
     import sys

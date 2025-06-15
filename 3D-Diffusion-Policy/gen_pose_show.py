@@ -1,5 +1,5 @@
 '''
-this code is used for show the difference ac_pre and ac_true
+this code is used for show the difference between ac_pre and ac_true
 '''
 
 if __name__ == "__main__":
