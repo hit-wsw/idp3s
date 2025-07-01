@@ -106,7 +106,7 @@ class TrainDP3Workspace:
     def _get_action_from_policy(self, frame_dict):
         state = self.transform_state_dict(frame_dict)
         with torch.no_grad():
-            action = self.model.get_action(state)
+            action = self.model.get_action_final(state)
             return action.cpu().numpy()
         
     def _load_policy(self, cpkt_path, cpkt_name):
@@ -262,7 +262,7 @@ class TrainDP3Workspace:
     
 def parse_args():
     parser = argparse.ArgumentParser(description='Train DP3 policy')
-    parser.add_argument('--algo_name', type=str,  default='idp3_eval', 
+    parser.add_argument('--algo_name', type=str,  default='idp3plus_eval', 
                        help='Algorithm name (e.g., idp3plus_eval, idp3_eval)')
     return parser.parse_args()
 
@@ -278,8 +278,8 @@ def load_config_from_yaml(config_name):
 def main():
     args = parse_args()
     config = load_config_from_yaml(args.algo_name)
-    path = '/media/wsw/SSD1T1/data/idp/idp3/g1_sim_small_place_expert-idp3-first_seed0/checkpoints';name = 'latest'
-    #path = '/media/wsw/SSD1T1/data/idp/idp3p/table/g1_sim_medium_6000_expert-idp3plus-loss4-16-8_seed0/checkpoints';name = '200'
+    #path = '/media/wsw/SSD1T1/data/idp/idp3/g1_sim_small_place_expert-idp3-first_seed0/checkpoints';name = 'latest'
+    path = '/media/wsw/SSD1T1/data/idp/idp3p/table/g1_sim_medium_6000_expert-idp3plus-loss4-16-8_seed0/checkpoints';name = '200'
     workspace = TrainDP3Workspace(config)
     #zarr_path = "/media/wsw/SSD1T1/data/idp3_data/g1_sim_small_4096_expert.zarr"
     zarr_path = '/media/wsw/SSD1T1/data/idp3_data/g1_sim_place_expert.zarr'

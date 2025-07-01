@@ -188,8 +188,7 @@ def load_config_from_yaml(config_name):
 def main():
     args = parse_args()
     config = load_config_from_yaml(args.algo_name)
-    path = '/home/wsw'
-    name = '210'
+    path = '/media/wsw/SSD1T1/data/idp/idp3p/table/g1_sim_medium_6000_expert-idp3plus-loss4-16-8_seed0/checkpoints';name = '200'
     original_dict = {
         'point_cloud': np.random.rand(2, 10000, 3),
         'agent_pos': np.random.rand(2, 27),

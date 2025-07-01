@@ -378,6 +378,12 @@ class DiffusionPointcloudPolicy(BasePolicy):
 
         return action
     
+    def get_action_final(self, obs_dict):
+        action_sequence = self._get_action_trajectory(obs_dict=obs_dict)
+        self.action_queue.extend(action_sequence[0])
+        action = self.action_queue[-1]
+        return action
+    
     def get_action_show(self, obs_dict):
         if len(self.action_queue) == 0:
             # [1,n_action_steps,Da]
